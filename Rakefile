@@ -4,6 +4,7 @@ require 'rake'
 begin
   require 'jeweler'
   Jeweler::Tasks.new do |gem|
+    gem.version = "0.0.1.snapshot"
     gem.name = "linode-utils"
     gem.summary = %Q{linode utils}
     gem.description = %Q{linode utils}
