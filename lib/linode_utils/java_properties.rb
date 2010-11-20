@@ -1,39 +1,41 @@
 # https://github.com/axic/rsnippets/blob/master/javaproperties.rb
 # Downloaded from http://devender.wordpress.com/2006/05/01/reading-and-writing-java-property-files-with-ruby/
-class LinodeUtils::JavaProperties
-  attr_accessor :file, :properties
+module LinodeUtils
+  class JavaProperties
+    attr_accessor :file, :properties
 
-  def initialize(file)
-    @file = file
-    @properties = {}
+    def initialize(file)
+      @file = file
+      @properties = {}
 
-    begin
-      IO.foreach(file) do |line|
-        @properties[$1.strip] = $2 if line = ~ /([^=]*)=(.*)\/\/(.*)/ || line =~ /([^=]*)=(.*)/
+      begin
+        IO.foreach(file) do |line|
+          @properties[$1.strip] = $2 if line = ~ /([^=]*)=(.*)\/\/(.*)/ || line =~ /([^=]*)=(.*)/
+        end
+      rescue
       end
-    rescue
     end
-  end
 
-  def to_s
-    output = "File name #{@file}\n"
-    @properties.each { |key, value| output += " #{key} = #{value}\n" }
-    output
-  end
+    def to_s
+      output = "File name #{@file}\n"
+      @properties.each { |key, value| output += " #{key} = #{value}\n" }
+      output
+    end
 
-  def add(key, value = nil)
-    return unless key.length > 0
-    @properties[key] = value
-  end
+    def add(key, value = nil)
+      return unless key.length > 0
+      @properties[key] = value
+    end
 
-  def remove(key)
-    return unless key.length > 0
-    @properties.delete(key)
-  end
+    def remove(key)
+      return unless key.length > 0
+      @properties.delete(key)
+    end
 
-  def save
-    file = File.new(@file, "w+")
-    @properties.each { |key, value| file.puts "#{key}=#{value}\n" }
-    file.close
+    def save
+      file = File.new(@file, "w+")
+      @properties.each { |key, value| file.puts "#{key}=#{value}\n" }
+      file.close
+    end
   end
 end
