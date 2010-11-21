@@ -125,18 +125,19 @@ module LinodeUtils
       size
     end
     
-    def create_disk(api, linode_id, options)
+    def create_disk_from_stackscript(api, linode_id, options)
       LOG.debug "Creating disk..."
       
       LOG.debug "options: " + options.inspect
       
       size = options.delete(:size)
       distro = options.delete(:distro)
-      
-      raise ArgumentError.new(":size and :distro options must be specified") if size.nil? and distro.nil?
+      stackscriptid = options.delete(:stackscriptid)
+            
+      raise ArgumentError.new(":size, :distro and :stackscriptid options must be specified") if size.nil? or distro.nil? or stackscriptid.nil?
       
       rootPass = options.delete(:rootPass) || LinodeUtils.secure_password
-      stackscriptid = options.delete(:stackscriptid)
+
 
       distros = api.avail.distributions.select do |d|
         LOG.debug distro.class.to_s
@@ -163,25 +164,26 @@ module LinodeUtils
 
       if stackscriptid
         params[:StackScriptID] = stackscriptid
-        params[:Label] = "Disk generated from Stack Script #{stackscriptid}",
+        params[:Label] = "Disk generated from Stack Script #{stackscriptid}"
         if options.size > 0
-          LOG.debug "StackScript vars: " + options.to_s
+          LOG.debug "StackScript vars: " + options.inspect
           params[:StackScriptUDFResponses] = options.to_json  
         end
       end
 
       LOG.debug "Params: " + params.inspect
 
-      #disk = l.linode.disk.createfromstackscript(options)
+      disk = api.linode.disk.createfromstackscript(params)
 
-      #LOG.debug "Waiting for disk creation..."
+      LOG.debug "Waiting for disk creation..."
 
-      #LOG.debug "Disk job id: #{disk.jobid}"
+      LOG.debug "Disk job id: #{disk.jobid}"
 
-      #raise "Some jobs failed" unless wait_for_jobs(l, linode_id, disk.jobid)
+      raise "Some jobs failed" unless wait_for_jobs(api, linode_id, disk.jobid)
   
-      #disk.diskid
+      disk.diskid
     end
+  
   
     def wait_for_jobs(l, linode_id, *job_ids)
       success = true
