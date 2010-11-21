@@ -27,7 +27,7 @@ Gem::Specification.new do |s|
      "test/helper.rb",
      "test/test_linode-utils.rb"
   ]
-  s.homepage = %q{http://github.com/ahamid/linode-utils}
+  s.homepage = %q{http://incandescentsoftware.com}
   s.rdoc_options = ["--charset=UTF-8"]
   s.require_paths = ["lib"]
   s.rubygems_version = %q{1.3.7}
