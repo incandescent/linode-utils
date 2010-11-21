@@ -1,9 +1,17 @@
 require 'linode'
 require 'linode_utils/java_properties'
+require 'logger'
+require 'sha1'
 
 module LinodeUtils
+  LOG = Logger.new(STDOUT)
+  LOG.level = Logger::DEBUG
+  
   LINODE_PROPS_FILE = File.expand_path("~/.linoderc")
   PUB_KEY_FILE = File.expand_path("~/.ssh/id_rsa.pub")
+
+  CRITERIA_NONSWAP = Proc.new { |disk| disk.table[:type] != "swap" }
+  CRITERIA_WRITABLE = Proc.new { |disk| disk.isreadonly == 0 }
 
   def self.read_user_linoderc
     JavaProperties.new(LINODE_PROPS_FILE).properties
@@ -12,6 +20,13 @@ module LinodeUtils
   def self.read_user_ssh_pub_key
     File.new(PUB_KEY_FILE).read
   end
+  
+  def self.secure_password
+    srand
+    seed = "--#{rand(10000)}--#{Time.now}--"
+    Digest::SHA1.hexdigest(seed)[0,20]
+  end
+
   
   # Takes a module, and curries all public instance methods on it
   # with the given args
@@ -29,7 +44,10 @@ module LinodeUtils
           # as the curried args, discard them
           for val in curried_args do
             break if args.empty?
-            args.shift if val.eql? args[0]
+            if val.eql? args[0]
+              #LOG.debug "Discarding provided curried arg: " + args[0].to_s
+              args.shift
+            end
           end
           super(*(curried_args + args))
         end
@@ -38,16 +56,8 @@ module LinodeUtils
     end
   end
 
-  def self.select_swap(swap = true)
-    Proc.new { |disk| (disk.table[:type] == "swap") == swap }
-  end
-  
-  def self.select_readonly(readonly = true)
-    Proc.new { |disk| (disk.isreadonly == 0) == readonly }
-  end
-
   def self.get_linode_by_label(api, label)
-    puts "Looking for linode with label '#{label}'"
+    LOG.debug "Looking for linode with label '#{label}'"
     api.linode.list.each do |n|
       if n.label == label
         return n
@@ -62,13 +72,13 @@ module LinodeUtils
     def shutdown_linode(api, id)
       job_id = api.linode.shutdown(:LinodeID => id).jobid
 
-      puts "Waiting for Linode to shut down..."
+      LOG.debug "Waiting for Linode to shut down..."
 
       wait_for_jobs(api, id, job_id) do
-        puts "Current linode status: " + (linode = api.linode.list(:LinodeID => id)[0]).status.to_s
+        LOG.debug "Current linode status: " + (linode = api.linode.list(:LinodeID => id)[0]).status.to_s
       end
 
-      puts "Linode has shut down"
+      LOG.debug "Linode has shut down"
     end
     
     def get_disks(api, linode_id)
@@ -76,26 +86,109 @@ module LinodeUtils
     end
 
     def delete_disks(api, linode_id, disks)
+      LOG.debug "Deleting disks: " + disks.to_s
       job_ids = disks.map do |disk|
-        puts "Deleting disk #{disk.to_s}"
+        LOG.debug "Deleting disk #{disk.to_s}"
         api.linode.disk.delete(:linodeid => linode_id, :diskid => disk.diskid).jobid
       end
       
-      p "Job ids"
-      p job_ids
-      puts "Waiting for disks to be deleted..."
+      LOG.debug "Job ids" + job_ids.to_s
+      LOG.debug "Waiting for disks to be deleted..."
       wait_for_jobs(api, linode_id, *job_ids)
     end
 
     def delete_non_swap_disks(api, linode_id)
-      puts "Removing all non-swap disks..."
-      delete_disks(api, linode_id, get_disks(api, linode_id).select(&LinodeUtils.select_swap(false)).select(&LinodeUtils.select_readonly(false)))
+      LOG.debug "Removing all non-swap disks..."
+      disks = get_disks(api, linode_id)
+      LOG.debug "disks: " + disks.to_s
+      writable_non_swap_disks = disks.select(&CRITERIA_WRITABLE).select(&CRITERIA_NONSWAP)
+      delete_disks(api, linode_id, writable_non_swap_disks)
+    end
+    
+    def delete_configs(api, linode_id)
+      LOG.debug "Deleting configurations..."
+
+      api.linode.config.list(:LinodeID => linode_id).each do |config|
+        LOG.debug "Deleting config #{config.label}..."
+        api.linode.config.delete(:LinodeID => linode_id, :ConfigID => config.configid)
+      end
     end
 
+    def used_disk_space(api, linode)
+      size = 0
+      disks = get_disks(api, linode)
+      LOG.debug "Disks: " + disks.to_s
+      disks.each do |disk|
+        size += disk.size
+        LOG.debug "Size: " + size.to_s
+      end
+      size
+    end
+    
+    def create_disk(api, linode_id, options)
+      LOG.debug "Creating disk..."
+      
+      LOG.debug "options: " + options.inspect
+      
+      size = options.delete(:size)
+      distro = options.delete(:distro)
+      
+      raise ArgumentError.new(":size and :distro options must be specified") if size.nil? and distro.nil?
+      
+      rootPass = options.delete(:rootPass) || LinodeUtils.secure_password
+      stackscriptid = options.delete(:stackscriptid)
+
+      distros = api.avail.distributions.select do |d|
+        LOG.debug distro.class.to_s
+        case distro
+          when String then d.label == distro
+          when Regexp then d.label =~ distro
+          else raise ArgumentError.new(":distro option must be String or Regex")
+        end
+      end
+
+      raise "Could not find Distro matching #{distro}" if distros.empty?
+
+      options.delete_if do |key, value|
+        value.nil?
+      end
+
+      params = {
+        :LinodeID => linode_id,
+        :DistributionID => distros[0].distributionid,
+        :Size => size,
+        :Label => "Disk generated via api",
+        :rootPass => rootPass
+      }
+
+      if stackscriptid
+        params[:StackScriptID] = stackscriptid
+        params[:Label] = "Disk generated from Stack Script #{stackscriptid}",
+        if options.size > 0
+          LOG.debug "StackScript vars: " + options.to_s
+          params[:StackScriptUDFResponses] = options.to_json  
+        end
+      end
+
+      LOG.debug "Params: " + params.inspect
+
+      #disk = l.linode.disk.createfromstackscript(options)
+
+      #LOG.debug "Waiting for disk creation..."
+
+      #LOG.debug "Disk job id: #{disk.jobid}"
+
+      #raise "Some jobs failed" unless wait_for_jobs(l, linode_id, disk.jobid)
+  
+      #disk.diskid
+    end
+  
     def wait_for_jobs(l, linode_id, *job_ids)
       success = true
-      while  job_ids.length > 0 do
+      LOG.debug "Waiting for jobs: " + job_ids.to_s
+      while job_ids.length > 0 do
         yield if block_given?
+        LOG.debug "Sleeping"
         sleep(5)
         jobs = l.linode.job.list(:LinodeID => linode_id)
         #p job_ids
@@ -111,7 +204,7 @@ module LinodeUtils
             completed_jobs.each do |c| 
               #p "Completed job"
               success = (c.host_success == 1)
-              puts "Job #{c.jobid} completed " + (success  ? "" : "un") + "successfully"
+              LOG.debug "Job #{c.jobid} completed " + (success  ? "" : "un") + "successfully"
               job_ids.delete(c.jobid)
               success &= success
             end
@@ -124,6 +217,7 @@ module LinodeUtils
 end
 
 class Machine
+  LOG = LinodeUtils::LOG
   # This is a group which is used as a failsafe to prevent inadvertent destruction
   # of the wrong linode!
   # Add api-accessible linodes to this LPM group
@@ -139,14 +233,16 @@ class Machine
     if @linode.lpm_displaygroup != AUTOMATABLE_DISPLAY_GROUP
       raise "Linode is not in the api-accessible group #{AUTOMATABLE_DISPLAY_GROUP}!"
     end
-    puts "Loaded Linode #{@linode.linodeid}:"
+    LOG.info "Loaded Linode #{@linode.linodeid}:"
     y @linode
     
+    # extend ourselves with versions of the LinodeUtils::LinodeOperations fuctions curried
+    # with the api and linode_id arguments
     self.extend LinodeUtils.curry_module(LinodeUtils::LinodeOperations, @api, @linode.linodeid)
   end
   
   def shutdown
-    puts "Shutting down Linode #{@label} (#{@linode.linodeid})..."
+    LOG.info "Shutting down Linode #{@label} (#{@linode.linodeid})..."
     Machine.shutdown_linode(api, @linode.linodeid)
     reload
   end
@@ -156,16 +252,4 @@ class Machine
     raise "Error reloading linode state" if list.nil? or list.empty? or list[0].nil?
     @linode = list[0]
   end
-  
-  def delete_non_swap_disks
-    Machine.delete_non_swap_disks
-  end
-  
-  #def used_disk_space
-  #  size = 0
-  #  get_disks.select(LinodeUtils.select_swap(false)).each do |disk|
-  #    size += disk.size
-  #  end
-  #  size
-  #end
 end
