@@ -9,7 +9,7 @@ begin
     gem.summary = %Q{linode utils}
     gem.description = %Q{linode utils}
     gem.email = "aaron@incandescentsoftware.com"
-    gem.homepage = "http://github.com/ahamid/linode-utils"
+    gem.homepage = "http://incandescentsoftware.com"
     gem.authors = ["aaron"]
     gem.add_development_dependency "thoughtbot-shoulda", ">= 0"
     # gem is a Gem::Specification... see http://www.rubygems.org/read/chapter/20 for additional settings

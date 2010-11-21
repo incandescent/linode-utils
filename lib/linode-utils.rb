@@ -238,7 +238,7 @@ module LinodeUtils
 
       raise "Could not find Kernel matching #{kernel_label}" if kernel.empty?
 
-      LOG.debug "Using kernel: #{kernel.label}"FOO
+      LOG.debug "Using kernel: #{kernel.label}"
 
       swap_id = get_disks(api, linode_id).select(&CRITERIA_SWAP)
       

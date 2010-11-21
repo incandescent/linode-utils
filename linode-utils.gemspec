@@ -24,6 +24,7 @@ Gem::Specification.new do |s|
      "Rakefile",
      "lib/linode-utils.rb",
      "lib/linode_utils/java_properties.rb",
+     "linode-utils.gemspec",
      "test/helper.rb",
      "test/test_linode-utils.rb"
   ]
