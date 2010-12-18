@@ -312,7 +312,7 @@ class Machine
     @api = api
     @label = label
     @linode = LinodeUtils.get_linode_by_label(api, label)
-    raise "Could not find Linode #{name}" if @linode.nil?
+    raise "Could not find Linode #{label}" if @linode.nil?
     if @linode.lpm_displaygroup != AUTOMATABLE_DISPLAY_GROUP
       raise "Linode is not in the api-accessible group #{AUTOMATABLE_DISPLAY_GROUP}!"
     end
