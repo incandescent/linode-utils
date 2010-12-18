@@ -25,6 +25,28 @@ module LinodeUtils
   
   MAXIMUM_DISK_SIZE = -1 # not my first choice, but Ruby Fixnums have flexible size
 
+  Hash.class_eval do
+    def symbolize_keys
+      inject({}) do |result, (key, value)|  
+        new_key = case  
+                    when key.respond_to?(:to_sym) then key.to_sym  
+                    else key
+                  end
+        result[new_key] = value
+        result
+      end
+    end
+  end
+
+  def self.init_api(opts = {})
+    config = LinodeUtils::read_user_linoderc.merge(opts)
+    config = config.symbolize_keys
+    if config[:api_key].nil? and (config[:username].nil? or config[:password].nil?)
+      raise "Either API key or username and password must be defined."
+    end
+    Linode.new(config)
+  end
+
   def self.read_user_linoderc
     JavaProperties.new(LINODE_PROPS_FILE).properties
   end
@@ -295,6 +317,75 @@ module LinodeUtils
         end
       end
       success
+    end
+  end
+
+  class LinodeConfig
+    MAX_DISKS = 9
+    
+    def initialize(api)
+      @api = api
+      @disks = []
+      @comments = ''
+      @label = ''
+    end
+  
+    # DSL verbs
+
+    def label(label)
+      @label = label
+    end
+
+    def kernel(kernel_label)
+      kernels = LinodeUtils.normalize_array(@api.avail.kernels().select do |kernel|
+        case kernel_label
+          when String then kernel.label == kernel_label
+          when Regexp then kernel.label =~ kernel_label
+          else raise ArgumentError.new(":kernel_label option must be String or Regex")
+        end
+      end)
+
+      raise "Could not find a kernel matching #{kernel_label}" if kernels.empty?
+
+      @kernel = kernels[0]
+      @kernel_id = @kernel.kernelid
+    end
+    
+    def root_device(num)
+      @root_device = num
+    end
+    
+    # TODO: support selecting disks from specific Linode via criteria Proc
+    def disk(disk_id, opts = { :root_device => false })
+      @disks << disk_id
+      @root_device = @disks.length if opts[:root_device]
+    end
+    
+    def comment(comment)
+      @comments << '\n' << comment
+      @comments.gsub!(/^[\r\n]*/, '')
+    end
+
+    def to_hash
+      {
+        :KernelID => @kernel_id,
+        :Comments => (@comments + "\n(generated #{Time.now})").gsub(/^[\\r\\n]*/, ''),
+        :Label => (@label + "\n(generated #{Time.now})").gsub(/^[\\r\\n]*/, ''),
+        :RootDeviceNum => @root_device,
+        :DiskList => disk_spec
+      }
+    end
+
+    # other methods
+    
+    def disk_spec
+      @disks.fill('', @disks.size..(MAX_DISKS - 1)).join(',')
+    end
+  
+    def self.build(api, &block)
+      config = new(api)
+      config.instance_eval(&block)
+      config
     end
   end
 end
