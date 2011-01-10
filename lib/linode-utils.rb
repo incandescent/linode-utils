@@ -10,6 +10,17 @@ OpenStruct.class_eval do
   attr_reader :table
 end
 
+# add status constants to Linode class
+Linode.class_eval do
+  BOOT_FAILED   = -2,          # Boot Failed
+  BUILDING      = -1,          # Being Created
+  PENDING       = 0,           # Brand New
+  RUNNING       = 1,           # Running
+  TERMINATED    = 2,           # Powered Off
+  SHUTTING_DOWN = 3,           # Shutting Down
+  RESERVED      = 4            # Reserved
+end
+
 module LinodeUtils
   LOG = Logger.new(STDOUT)
   LOG.level = Logger::INFO
