@@ -11,6 +11,9 @@ OpenStruct.class_eval do
 end
 
 # add status constants to Linode class
+# adding through class_eval will yield errors like:
+# ./recreate-linode.rb:55: warning: toplevel constant TERMINATED referenced by Linode::TERMINATED
+# see: http://markmail.org/message/y7h5kfnh2emvefxz#query:+page:1+mid:gosubmykturvkvlz+state:results
 Linode.class_eval do
   BOOT_FAILED   = -2,          # Boot Failed
   BUILDING      = -1,          # Being Created
